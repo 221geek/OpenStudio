@@ -253,7 +253,7 @@ fn creative_analysis_instruction(
     prompt: &str,
     attachments: &[Attachment],
 ) -> String {
-    format!("You are the research and creative-strategy stage of a poster studio. Do NOT design yet. Study the user brief, the brand system, and every attached reference image. Return ONLY JSON: {{\"facts\":[string],\"hierarchy\":[string],\"reference_reading\":string,\"visual_strategy\":string,\"avoid\":[string]}}. Facts must include every supplied deadline, date, place, URL, call-to-action and proper name verbatim. Hierarchy must order what is read first through last. Reference_reading must identify composition, density, typography, imagery, palette and rhythm observed in the attachments. Visual_strategy must state exactly how to merge the reference with the brand colours and fonts. Never invent facts. Attached references: {}. Brand name: {}. Brand colours: {}. Brand typography: {} / {}. Brand rules: {}. Brief: {}",attachments.len(),brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,brand.dos.join("; "),prompt)
+    format!("You are the research and creative-strategy stage of a poster studio. Do NOT design yet. Study the user brief, the brand system, and every attached reference image. Return ONLY JSON: {{\"facts\":[string],\"hierarchy\":[string],\"reference_reading\":string,\"visual_strategy\":string,\"avoid\":[string]}}. Facts are audience-facing facts ONLY: include every supplied deadline, date, place, URL, call-to-action and proper name verbatim. Never include hex codes, palette names, colour roles, font names or any other brand metadata in facts. Hierarchy must order what is read first through last. Reference_reading must identify composition, density, typography, imagery, palette and rhythm observed in the attachments. Visual_strategy must state exactly how to merge the reference with the brand colours and fonts. Never invent facts. Attached references: {}. Brand name: {}. Brand colours: {}. Brand typography: {} / {}. Brand rules: {}. Brief: {}",attachments.len(),brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,brand.dos.join("; "),prompt)
 }
 fn generation_instruction(
     brand: &BrandKit,
@@ -262,7 +262,7 @@ fn generation_instruction(
     attachments: &[Attachment],
     plan: &CreativePlan,
 ) -> String {
-    format!("You are the final production art director for an editable, premium social poster. You have already received a research plan. Obey it exactly. Produce a designed composition, never the generic pattern of centered text plus one decorative circle. Answer with ONLY JSON: {{\"label\":string,\"kicker\":string,\"headline\":string,\"subline\":string,\"details\":[string],\"cta\":string,\"footer\":string,\"composition\":\"editorial|event|split|typographic\",\"reference_note\":string,\"scheme\":\"light|dark|accent|secondary\",\"alignment\":\"left|center\",\"title_size\":number,\"shape\":\"circle\"}}. Details must preserve every fact from the research plan. Use a clear poster hierarchy, intentional negative space, and a reference-led arrangement. If a reference exists, its composition and visual rhythm outweigh a generic social template; the DA supplies colour and type, the reference supplies the art direction. Select composition event for information-dense event posters, split for image-led references, editorial for asymmetric type systems, and typographic only when the reference proves type alone is sufficient.\n\nRESEARCH PLAN: facts={:?}; hierarchy={:?}; reference reading={}; visual strategy={}; avoid={:?}.\nBRAND: {} / colours {} / fonts {} + {}. Existing version: {}. Original brief: {}. Attachments available: {}",plan.facts,plan.hierarchy,plan.reference_reading,plan.visual_strategy,plan.avoid,brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,base.map(|x|serde_json::to_string(x).unwrap_or_default()).unwrap_or_else(||"none".into()),prompt,attachments.len())
+    format!("You are the final production art director for an editable, premium social poster. You have already received a research plan. Obey it exactly. Produce a designed composition, never the generic pattern of centered text plus one decorative circle. Answer with ONLY JSON: {{\"label\":string,\"kicker\":string,\"headline\":string,\"subline\":string,\"details\":[string],\"cta\":string,\"footer\":string,\"composition\":\"editorial|event|split|typographic\",\"reference_note\":string,\"scheme\":\"light|dark|accent|secondary\",\"alignment\":\"left|center\",\"title_size\":number,\"shape\":\"circle\"}}. Every text field is public poster copy. NEVER output colour values, hex codes, palette roles, font names, design analysis or private notes in headline, kicker, subline, details, CTA or footer. Details must preserve only audience-facing facts from the research plan. Use a clear poster hierarchy, intentional negative space, and a reference-led arrangement. If a reference exists, its composition and visual rhythm outweigh a generic social template; the DA supplies colour and type, the reference supplies the art direction. Select composition event for information-dense event posters, split for image-led references, editorial for asymmetric type systems, and typographic only when the reference proves type alone is sufficient.\n\nRESEARCH PLAN: facts={:?}; hierarchy={:?}; reference reading={}; visual strategy={}; avoid={:?}.\nBRAND: {} / colours {} / fonts {} + {}. Existing version: {}. Original brief: {}. Attachments available: {}",plan.facts,plan.hierarchy,plan.reference_reading,plan.visual_strategy,plan.avoid,brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,base.map(|x|serde_json::to_string(x).unwrap_or_default()).unwrap_or_else(||"none".into()),prompt,attachments.len())
 }
 fn parse_creative_plan(raw: &str) -> Result<CreativePlan, String> {
     let candidate = raw
@@ -309,6 +309,7 @@ fn parse_spec(raw: &str) -> Result<(String, VisualSpec), String> {
         .get("headline")
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
+        .filter(|s| is_public_poster_copy(s))
         .ok_or("The provider response is missing a headline.")?
         .to_string();
     Ok((
@@ -318,19 +319,20 @@ fn parse_spec(raw: &str) -> Result<(String, VisualSpec), String> {
             kicker: candidate
                 .get("kicker")
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+                .map(public_copy)
+                .unwrap_or_default(),
             subline: candidate
                 .get("subline")
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+                .map(public_copy)
+                .unwrap_or_default(),
             details: candidate
                 .get("details")
                 .and_then(Value::as_array)
                 .map(|xs| {
                     xs.iter()
                         .filter_map(Value::as_str)
+                        .filter(|value| is_public_poster_copy(value))
                         .map(str::to_string)
                         .take(6)
                         .collect()
@@ -339,13 +341,13 @@ fn parse_spec(raw: &str) -> Result<(String, VisualSpec), String> {
             cta: candidate
                 .get("cta")
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+                .map(public_copy)
+                .unwrap_or_default(),
             footer: candidate
                 .get("footer")
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+                .map(public_copy)
+                .unwrap_or_default(),
             composition: choice(
                 &candidate,
                 "composition",
@@ -384,6 +386,36 @@ fn choice(v: &Value, key: &str, options: &[&str], fallback: &str) -> String {
     } else {
         fallback.to_string()
     }
+}
+
+fn public_copy(value: &str) -> String {
+    if is_public_poster_copy(value) {
+        value.trim().to_owned()
+    } else {
+        String::new()
+    }
+}
+
+fn is_public_poster_copy(value: &str) -> bool {
+    let lower = value.to_lowercase();
+    !value.trim().is_empty()
+        && !value.contains('#')
+        && ![
+            "couleur",
+            "color",
+            "palette",
+            "typograph",
+            "police",
+            "font",
+            "archivo",
+            "onest",
+            "hex",
+            "accent —",
+            "fond —",
+            "texte —",
+        ]
+        .iter()
+        .any(|token| lower.contains(token))
 }
 
 fn parse_brand_kit(raw: &str, name: &str) -> Result<BrandKit, String> {
@@ -477,4 +509,23 @@ fn parse_brand_kit(raw: &str, name: &str) -> Result<BrandKit, String> {
         donts: strings("donts"),
         created_at: chrono::Utc::now().to_rfc3339(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removes_brand_metadata_from_public_poster_copy() {
+        let raw = r#"{"label":"Poster","headline":"Call for speakers","kicker":"GDG","subline":"Share your expertise","details":["Deadline · 25 October","Fond — #F2EBDD","Archivo / Onest"],"cta":"Apply now","footer":"GDG Dakar","composition":"event","scheme":"light","alignment":"left","title_size":120}"#;
+        let (_, spec) = parse_spec(raw).expect("valid public poster copy");
+        assert_eq!(spec.details, vec!["Deadline · 25 October"]);
+        assert_eq!(spec.cta, "Apply now");
+    }
+
+    #[test]
+    fn rejects_technical_headlines() {
+        let raw = r##"{"headline":"#F2EBDD","composition":"event"}"##;
+        assert!(parse_spec(raw).is_err());
+    }
 }
