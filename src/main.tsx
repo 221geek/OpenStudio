@@ -874,12 +874,12 @@ function Studio({
                 </i>
                 <strong>Composition en cours</strong>
                 <span>
-                  L’IA construit la première version à partir de ton brief.
+                  L’IA structure le message, la direction artistique et le prompt de production.
                 </span>
                 <div className="generation-steps">
-                  <span>Brief</span>
-                  <span>DA</span>
-                  <span>Composition</span>
+                  <span>Message</span>
+                  <span>UX & DA</span>
+                  <span>Production</span>
                 </div>
               </>
             ) : (

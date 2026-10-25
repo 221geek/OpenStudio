@@ -59,16 +59,19 @@ pub async fn generate(
     if provider.kind == ProviderKind::OpenAiCompatible && is_openai_image_model(&provider.model) {
         return generate_openai_image(provider, brand, prompt, attachments, format).await;
     }
+    let message_raw =
+        request_provider(provider, &message_strategy_instruction(prompt), attachments).await?;
+    let message = parse_message_plan(&message_raw)?;
     let plan_raw = request_provider(
         provider,
-        &creative_analysis_instruction(brand, prompt, attachments),
+        &creative_analysis_instruction(brand, prompt, attachments, &message),
         attachments,
     )
     .await?;
     let plan = parse_creative_plan(&plan_raw)?;
     let raw = request_provider(
         provider,
-        &generation_instruction(brand, prompt, base, attachments, &plan),
+        &generation_instruction(brand, prompt, base, attachments, &message, &plan),
         attachments,
     )
     .await?;
@@ -183,6 +186,16 @@ struct CreativePlan {
     reference_reading: String,
     visual_strategy: String,
     avoid: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MessagePlan {
+    audience: String,
+    communication_objective: String,
+    single_minded_message: String,
+    primary_cta: String,
+    facts: Vec<String>,
+    content_guardrails: Vec<String>,
 }
 
 async fn request_provider(
@@ -357,21 +370,27 @@ async fn anthropic(
         .map(str::to_string)
         .ok_or("Provider returned no text content".into())
 }
+fn message_strategy_instruction(prompt: &str) -> String {
+    format!("You are the message strategist for an event poster. Work on content only; do not choose colours, fonts or layout. Return ONLY JSON: {{\"audience\":string,\"communication_objective\":string,\"single_minded_message\":string,\"primary_cta\":string,\"facts\":[string],\"content_guardrails\":[string]}}. Extract every explicit factual element from the brief verbatim. Decide the one message a viewer must understand in two seconds and the one action they should take. Do not invent venue, agenda, links, speakers, dates or benefits. Brief: {prompt}")
+}
+
 fn creative_analysis_instruction(
     brand: &BrandKit,
     prompt: &str,
     attachments: &[Attachment],
+    message: &MessagePlan,
 ) -> String {
-    format!("You are the research and creative-strategy stage of a poster studio. Follow the embedded POSTER ART DIRECTION SKILL below. Do NOT design yet. Study the user brief, the brand system, and every attached reference image. Return ONLY JSON: {{\"facts\":[string],\"hierarchy\":[string],\"reference_reading\":string,\"visual_strategy\":string,\"avoid\":[string]}}. Facts are audience-facing facts ONLY: include every supplied deadline, date, place, URL, call-to-action and proper name verbatim. Never include hex codes, palette names, colour roles, font names or any other brand metadata in facts. Hierarchy must order what is read first through last. Reference_reading must identify composition, density, typography, imagery, palette and rhythm observed in the attachments. Visual_strategy must state exactly how to merge the reference with the brand colours and fonts. Never invent facts.\n\nPOSTER ART DIRECTION SKILL:\n{}\n\nAttached references: {}. Brand name: {}. Brand colours: {}. Brand typography: {} / {}. Brand rules: {}. Brief: {}",POSTER_ART_DIRECTION_SKILL,attachments.len(),brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,brand.dos.join("; "),prompt)
+    format!("You are the UX and art-direction stage of a poster studio. Follow the embedded POSTER ART DIRECTION SKILL below. Do NOT generate the poster yet. Study the message strategy, user brief, brand system and every attached reference image. Return ONLY JSON: {{\"facts\":[string],\"hierarchy\":[string],\"reference_reading\":string,\"visual_strategy\":string,\"avoid\":[string]}}. Facts are audience-facing facts ONLY: include every supplied deadline, date, place, URL, call-to-action and proper name verbatim. Never include hex codes, palette names, colour roles, font names or any other brand metadata in facts. Hierarchy must make the message strategy readable in two seconds, then the practical information, then the action. Reference_reading must identify composition, density, typography, imagery, palette and rhythm observed in the attachments. Visual_strategy must state exactly how to merge the reference with the brand colours and fonts. Never invent facts.\n\nMESSAGE STRATEGY: audience={}; objective={}; single message={}; primary CTA={}; facts={:?}; guardrails={:?}.\n\nPOSTER ART DIRECTION SKILL:\n{}\n\nAttached references: {}. Brand name: {}. Brand colours: {}. Brand typography: {} / {}. Brand rules: {}. Brief: {}",message.audience,message.communication_objective,message.single_minded_message,message.primary_cta,message.facts,message.content_guardrails,POSTER_ART_DIRECTION_SKILL,attachments.len(),brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,brand.dos.join("; "),prompt)
 }
 fn generation_instruction(
     brand: &BrandKit,
     prompt: &str,
     base: Option<&VisualSpec>,
     attachments: &[Attachment],
+    message: &MessagePlan,
     plan: &CreativePlan,
 ) -> String {
-    format!("You are the final production art director for an editable, premium social poster. You have already received a research plan. Apply the embedded POSTER ART DIRECTION SKILL and its quality gate. Obey the plan exactly. Produce a designed composition, never the generic pattern of centered text plus one decorative circle. Answer with ONLY JSON: {{\"label\":string,\"kicker\":string,\"headline\":string,\"subline\":string,\"details\":[string],\"cta\":string,\"footer\":string,\"composition\":\"editorial|event|split|typographic\",\"reference_note\":string,\"scheme\":\"light|dark|accent|secondary\",\"alignment\":\"left|center\",\"title_size\":number,\"shape\":\"circle\"}}. Every text field is public poster copy. NEVER output colour values, hex codes, palette roles, font names, design analysis or private notes in headline, kicker, subline, details, CTA or footer. Details must preserve only audience-facing facts from the research plan. Use a clear poster hierarchy, intentional negative space, and a reference-led arrangement. If a reference exists, its composition and visual rhythm outweigh a generic social template; the DA supplies colour and type, the reference supplies the art direction. Select composition event for information-dense event posters, split for image-led references, editorial for asymmetric type systems, and typographic only when the reference proves type alone is sufficient.\n\nPOSTER ART DIRECTION SKILL:\n{}\n\nQUALITY GATE:\n{}\n\nRESEARCH PLAN: facts={:?}; hierarchy={:?}; reference reading={}; visual strategy={}; avoid={:?}.\nBRAND: {} / colours {} / fonts {} + {}. Existing version: {}. Original brief: {}. Attachments available: {}",POSTER_ART_DIRECTION_SKILL,POSTER_QUALITY_GATE,plan.facts,plan.hierarchy,plan.reference_reading,plan.visual_strategy,plan.avoid,brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,base.map(|x|serde_json::to_string(x).unwrap_or_default()).unwrap_or_else(||"none".into()),prompt,attachments.len())
+    format!("You are the final production art director for an editable, premium social poster. You have received a message strategy and a UX/art-direction plan. Apply the embedded POSTER ART DIRECTION SKILL and its quality gate. Obey both plans exactly. Produce a designed composition, never the generic pattern of centered text plus one decorative circle. Answer with ONLY JSON: {{\"label\":string,\"kicker\":string,\"headline\":string,\"subline\":string,\"details\":[string],\"cta\":string,\"footer\":string,\"composition\":\"editorial|event|split|typographic\",\"reference_note\":string,\"scheme\":\"light|dark|accent|secondary\",\"alignment\":\"left|center\",\"title_size\":number,\"shape\":\"circle\"}}. Every text field is public poster copy. NEVER output colour values, hex codes, palette roles, font names, design analysis or private notes in headline, kicker, subline, details, CTA or footer. Details must preserve only audience-facing facts from the strategy. Use a clear poster hierarchy, intentional negative space, and a reference-led arrangement. If a reference exists, its composition and visual rhythm outweigh a generic social template; the DA supplies colour and type, the reference supplies the art direction. Select composition event for information-dense event posters, split for image-led references, editorial for asymmetric type systems, and typographic only when the reference proves type alone is sufficient.\n\nMESSAGE STRATEGY: audience={}; objective={}; single message={}; primary CTA={}; facts={:?}; guardrails={:?}.\n\nPOSTER ART DIRECTION SKILL:\n{}\n\nQUALITY GATE:\n{}\n\nUX / ART-DIRECTION PLAN: facts={:?}; hierarchy={:?}; reference reading={}; visual strategy={}; avoid={:?}.\nBRAND: {} / colours {} / fonts {} + {}. Existing version: {}. Original brief: {}. Attachments available: {}",message.audience,message.communication_objective,message.single_minded_message,message.primary_cta,message.facts,message.content_guardrails,POSTER_ART_DIRECTION_SKILL,POSTER_QUALITY_GATE,plan.facts,plan.hierarchy,plan.reference_reading,plan.visual_strategy,plan.avoid,brand.name,serde_json::to_string(&brand.colors).unwrap_or_default(),brand.display_font,brand.body_font,base.map(|x|serde_json::to_string(x).unwrap_or_default()).unwrap_or_else(||"none".into()),prompt,attachments.len())
 }
 fn parse_creative_plan(raw: &str) -> Result<CreativePlan, String> {
     let candidate = raw
@@ -390,6 +409,30 @@ fn parse_creative_plan(raw: &str) -> Result<CreativePlan, String> {
     if candidate.facts.is_empty() || candidate.hierarchy.is_empty() {
         return Err(
             "The creative-analysis stage did not extract the required poster information.".into(),
+        );
+    }
+    Ok(candidate)
+}
+
+fn parse_message_plan(raw: &str) -> Result<MessagePlan, String> {
+    let candidate = raw
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<MessagePlan>(line).ok())
+        .or_else(|| serde_json::from_str::<MessagePlan>(raw).ok())
+        .or_else(|| {
+            let start = raw.find('{')?;
+            let end = raw.rfind('}')?;
+            serde_json::from_str(&raw[start..=end]).ok()
+        })
+        .ok_or("The message-strategy stage did not return usable poster content.".to_string())?;
+    if candidate.single_minded_message.trim().is_empty()
+        || candidate.primary_cta.trim().is_empty()
+        || candidate.facts.is_empty()
+    {
+        return Err(
+            "The message-strategy stage did not identify the message, CTA and factual content."
+                .into(),
         );
     }
     Ok(candidate)
