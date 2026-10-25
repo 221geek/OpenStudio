@@ -13,6 +13,7 @@ There is no OpenStudio backend, account, telemetry, or hosted database. Projects
 - Connect any OpenAI-compatible endpoint or Anthropic API with a BYOK key.
 - Disable creation until one provider is explicitly active.
 - Export each version as SVG or PNG locally.
+- Apply the bundled `Poster Art Direction` skill before every generation: it extracts public facts, reads references, sets hierarchy, and rejects generic or technically polluted poster copy.
 - Run on macOS, Windows, and Linux through Tauri 2.
 
 OpenStudio does not ship demo projects or simulated AI responses. A connected and active provider is required before a visual can be generated.
@@ -74,6 +75,8 @@ Tauri generates native installers for the host platform. Build on each target pl
 Generation asks the chosen model for a constrained JSON visual specification. OpenStudio validates it, stores the immutable version, and renders the result locally into SVG or PNG. This approach keeps the visual editable and makes exports deterministic.
 
 Reference attachments are limited to eight files per request and 10 MB per file. Image inputs are sent as vision content to compatible OpenAI-style and Anthropic endpoints. For local Codex and Claude CLIs, OpenStudio writes temporary local reference files for the command and removes them once the generation ends.
+
+The bundled production skill is versioned in [`skills/poster-art-direction`](skills/poster-art-direction). It is compiled into the local application and sent to the selected model during both the research and final art-direction stages; it is not a server-side prompt.
 
 For an OpenAI-compatible connection, the endpoint must implement `POST /chat/completions`. The endpoint defaults to `https://api.openai.com/v1` when left empty. For Anthropic, the endpoint defaults to `https://api.anthropic.com/v1/messages`.
 
