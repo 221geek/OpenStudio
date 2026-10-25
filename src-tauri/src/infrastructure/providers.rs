@@ -48,17 +48,23 @@ pub async fn detect_local() -> Vec<(ProviderKind, bool)> {
     ]
 }
 
+pub fn supports_image(provider: &Provider) -> bool {
+    provider.kind == ProviderKind::OpenAiCompatible && is_openai_image_model(&provider.model)
+}
+
+pub fn supports_strategy(provider: &Provider) -> bool {
+    !supports_image(provider)
+}
+
 pub async fn generate(
     provider: &Provider,
+    image_provider: Option<&Provider>,
     brand: &BrandKit,
     prompt: &str,
     base: Option<&VisualSpec>,
     attachments: &[Attachment],
     format: &str,
 ) -> Result<(String, VisualSpec), String> {
-    if provider.kind == ProviderKind::OpenAiCompatible && is_openai_image_model(&provider.model) {
-        return generate_openai_image(provider, brand, prompt, attachments, format).await;
-    }
     let message_raw =
         request_provider(provider, &message_strategy_instruction(prompt), attachments).await?;
     let message = parse_message_plan(&message_raw)?;
@@ -69,13 +75,15 @@ pub async fn generate(
     )
     .await?;
     let plan = parse_creative_plan(&plan_raw)?;
-    let raw = request_provider(
-        provider,
-        &generation_instruction(brand, prompt, base, attachments, &message, &plan),
+    let image_provider = image_provider.ok_or("Connect and activate an image provider (for example a GPT Image model). OpenStudio will not substitute a flat SVG for a generated image.")?;
+    generate_openai_image(
+        image_provider,
+        brand,
+        &image_production_prompt(brand, prompt, &message, &plan),
         attachments,
+        format,
     )
-    .await?;
-    parse_spec(&raw)
+    .await
 }
 
 fn is_openai_image_model(model: &str) -> bool {
@@ -169,6 +177,15 @@ async fn generate_openai_image(
             shape: String::new(),
         },
     ))
+}
+
+fn image_production_prompt(
+    brand: &BrandKit,
+    brief: &str,
+    message: &MessagePlan,
+    plan: &CreativePlan,
+) -> String {
+    format!("Create one premium, production-ready social poster. Apply this poster skill and quality gate. The output must communicate the strategy instantly, retain every factual detail exactly, respect the attached visual references, and avoid generic centered-text templates. Do not print colour values, font names, palette labels, instructions or OpenStudio branding.\n\nSKILL:\n{}\n\nQUALITY GATE:\n{}\n\nMESSAGE: audience={}; objective={}; single message={}; CTA={}; facts={:?}; guardrails={:?}.\n\nART DIRECTION: hierarchy={:?}; reference reading={}; visual strategy={}; avoid={:?}.\n\nBRAND: {}; palette for visual use only={}; typography direction={} / {}.\n\nORIGINAL BRIEF: {}", POSTER_ART_DIRECTION_SKILL, POSTER_QUALITY_GATE, message.audience, message.communication_objective, message.single_minded_message, message.primary_cta, message.facts, message.content_guardrails, plan.hierarchy, plan.reference_reading, plan.visual_strategy, plan.avoid, brand.name, serde_json::to_string(&brand.colors).unwrap_or_default(), brand.display_font, brand.body_font, brief)
 }
 
 fn image_size_for_format(format: &str) -> &'static str {

@@ -173,10 +173,7 @@ impl Database {
     }
     pub fn enable_provider(&self, id: &str) -> Result<(), String> {
         self.connection
-            .execute(
-                "UPDATE providers SET enabled=CASE WHEN id=?1 THEN 1 ELSE 0 END",
-                [id],
-            )
+            .execute("UPDATE providers SET enabled=1 WHERE id=?1", [id])
             .map_err(|e| e.to_string())?;
         Ok(())
     }

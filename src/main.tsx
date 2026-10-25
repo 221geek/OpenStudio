@@ -1207,9 +1207,9 @@ function SettingsModal({
         </button>
         <h2>Modèles IA</h2>
         <p>
-          OpenStudio n’envoie rien à un serveur applicatif. Les clés BYOK
-          restent dans le trousseau de votre système. Un modèle actif est
-          nécessaire pour créer.
+          OpenStudio n’envoie rien à un serveur applicatif. Active Codex ou
+          Claude pour la stratégie, puis un modèle GPT Image pour le PNG
+          final. Les clés BYOK restent dans le trousseau de votre système.
         </p>
         <div className="form-grid">
           <label className="field">

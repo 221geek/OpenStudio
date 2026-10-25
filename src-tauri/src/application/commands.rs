@@ -136,13 +136,14 @@ pub async fn generate_version(
     {
         return Err("Each reference file must be smaller than 10 MB.".into());
     }
-    let (provider, brand, base, format) = {
+    let (provider, image_provider, brand, base, format) = {
         let d = db(&state)?;
-        let p = d
-            .list_providers()?
-            .into_iter()
-            .find(|p| p.enabled)
-            .ok_or("Connect and activate an AI provider before creating a visual.")?;
+        let providers = d.list_providers()?;
+        let p = providers
+            .iter()
+            .find(|p| p.enabled && providers::supports_strategy(p))
+            .cloned()
+            .ok_or("Connect and activate Codex or Claude as the strategy provider.")?;
         if matches!(
             p.kind,
             ProviderKind::OpenAiCompatible | ProviderKind::Anthropic
@@ -161,10 +162,20 @@ pub async fn generate_version(
         let base = input
             .base_version_id
             .and_then(|id| project.versions.into_iter().find(|x| x.id == id));
-        (p, brand, base, project.format)
+        let image_provider = d
+            .list_providers()?
+            .into_iter()
+            .find(|p| p.enabled && providers::supports_image(p));
+        if let Some(image) = &image_provider {
+            if !image.has_secret {
+                return Err("The active image provider needs an API key in Settings.".into());
+            }
+        }
+        (p, image_provider, brand, base, project.format)
     };
     let (label, spec) = providers::generate(
         &provider,
+        image_provider.as_ref(),
         &brand,
         &input.prompt,
         base.as_ref().map(|x| &x.spec),
