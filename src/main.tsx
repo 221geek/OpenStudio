@@ -95,6 +95,7 @@ function App() {
       await refresh();
     } catch (e) {
       setNotice(e instanceof Error ? e.message : String(e));
+      setSettings(true);
     } finally {
       setInitialGenerating(false);
     }
@@ -107,7 +108,20 @@ function App() {
         </div>
       </div>
     );
-  const activeProvider = data.providers.find((x) => x.enabled);
+  const activeProvider = data.providers.find(
+    (x) =>
+      x.enabled &&
+      !(x.kind === "open_ai_compatible" &&
+        (x.model.toLowerCase().startsWith("gpt-image-") ||
+          x.model.toLowerCase() === "chatgpt-image-latest")),
+  );
+  const imageProvider = data.providers.find(
+    (x) =>
+      x.enabled &&
+      x.kind === "open_ai_compatible" &&
+      (x.model.toLowerCase().startsWith("gpt-image-") ||
+        x.model.toLowerCase() === "chatgpt-image-latest"),
+  );
   const brandForProject =
     project && data.brandKits.find((x) => x.id === project.brandKitId);
   return (
@@ -117,13 +131,13 @@ function App() {
           screen={screen}
           setScreen={setScreen}
           onSettings={() => setSettings(true)}
-          hasProvider={Boolean(activeProvider)}
+          hasProvider={Boolean(activeProvider && imageProvider)}
         />
         {screen === "home" && (
           <Home
             projects={data.projects}
             brands={data.brandKits}
-            activeProvider={Boolean(activeProvider)}
+            activeProvider={Boolean(activeProvider && imageProvider)}
             onCreate={create}
             onOpen={open}
             onDelete={async (id) => {
@@ -309,7 +323,8 @@ function Home({
             </div>
             {!activeProvider && (
               <small className="muted">
-                Connecte un modèle IA dans les réglages pour créer.
+                Active Codex ou Claude pour la stratégie, puis un modèle GPT
+                Image pour produire le visuel.
               </small>
             )}
             {!brands.length && (
