@@ -29,6 +29,8 @@ pub struct BrandKit {
 pub struct VisualSpec {
     pub headline: String,
     #[serde(default)]
+    pub image_data: String,
+    #[serde(default)]
     pub kicker: String,
     #[serde(default)]
     pub subline: String,

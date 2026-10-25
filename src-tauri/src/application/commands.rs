@@ -136,7 +136,7 @@ pub async fn generate_version(
     {
         return Err("Each reference file must be smaller than 10 MB.".into());
     }
-    let (provider, brand, base) = {
+    let (provider, brand, base, format) = {
         let d = db(&state)?;
         let p = d
             .list_providers()?
@@ -161,7 +161,7 @@ pub async fn generate_version(
         let base = input
             .base_version_id
             .and_then(|id| project.versions.into_iter().find(|x| x.id == id));
-        (p, brand, base)
+        (p, brand, base, project.format)
     };
     let (label, spec) = providers::generate(
         &provider,
@@ -169,6 +169,7 @@ pub async fn generate_version(
         &input.prompt,
         base.as_ref().map(|x| &x.spec),
         &input.attachments,
+        &format,
     )
     .await?;
     db(&state)?.append_version(&input.project_id, label, input.prompt, spec)

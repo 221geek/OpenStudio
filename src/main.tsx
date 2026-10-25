@@ -1239,7 +1239,9 @@ function SettingsModal({
                 Claude CLI local{" "}
                 {detected.includes("claude_cli") ? "· détecté" : ""}
               </option>
-              <option value="open_ai_compatible">API compatible OpenAI</option>
+                <option value="open_ai_compatible">
+                  API compatible OpenAI · texte ou image
+                </option>
               <option value="anthropic">API Anthropic</option>
             </select>
           </label>
@@ -1255,7 +1257,7 @@ function SettingsModal({
               <label className="field">
                 Modèle
                 <input
-                  placeholder="gpt-4.1 ou votre modèle"
+                  placeholder="gpt-4.1 ou gpt-image-2.5-flare"
                   value={form.model}
                   onChange={(e) => setForm({ ...form, model: e.target.value })}
                 />

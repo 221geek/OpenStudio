@@ -7,6 +7,12 @@ pub fn render_svg(spec: &VisualSpec, brand: &BrandKit, format: &str) -> Result<S
         "landscape" => (1920, 1080),
         _ => (1080, 1350),
     };
+    if !spec.image_data.is_empty() {
+        return Ok(format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}"><image href="{}" width="{width}" height="{height}" preserveAspectRatio="xMidYMid slice"/></svg>"#,
+            escape(&spec.image_data)
+        ));
+    }
     let colors: Vec<&str> = brand
         .colors
         .iter()
@@ -290,6 +296,7 @@ mod tests {
     fn spec() -> VisualSpec {
         VisualSpec {
             headline: "Call for speakers".into(),
+            image_data: "".into(),
             kicker: "GDG Dakar".into(),
             subline: "Share your expertise".into(),
             details: vec!["Deadline · 25 October".into(), "Fond — #F2EBDD".into()],

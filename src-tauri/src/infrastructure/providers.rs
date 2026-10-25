@@ -54,7 +54,11 @@ pub async fn generate(
     prompt: &str,
     base: Option<&VisualSpec>,
     attachments: &[Attachment],
+    format: &str,
 ) -> Result<(String, VisualSpec), String> {
+    if provider.kind == ProviderKind::OpenAiCompatible && is_openai_image_model(&provider.model) {
+        return generate_openai_image(provider, brand, prompt, attachments, format).await;
+    }
     let plan_raw = request_provider(
         provider,
         &creative_analysis_instruction(brand, prompt, attachments),
@@ -69,6 +73,107 @@ pub async fn generate(
     )
     .await?;
     parse_spec(&raw)
+}
+
+fn is_openai_image_model(model: &str) -> bool {
+    let model = model.to_lowercase();
+    model.starts_with("gpt-image-") || model == "chatgpt-image-latest"
+}
+
+async fn generate_openai_image(
+    provider: &Provider,
+    brand: &BrandKit,
+    brief: &str,
+    attachments: &[Attachment],
+    format: &str,
+) -> Result<(String, VisualSpec), String> {
+    let endpoint = provider
+        .endpoint
+        .as_deref()
+        .unwrap_or("https://api.openai.com/v1")
+        .trim_end_matches('/');
+    let key = secret(&provider.id)?;
+    let prompt = format!(
+        "Create one premium, production-ready social poster. Follow this art-direction skill:\n{}\n\nBrand: {}. Palette (use visually, never print): {}. Typography direction: {} / {}. Brief: {}. Render all supplied public facts accurately and legibly. Use a deliberate editorial composition, rich visual hierarchy, and polished art direction. Do not render design notes, palette values, font names, placeholders, or OpenStudio branding.",
+        POSTER_ART_DIRECTION_SKILL,
+        brand.name,
+        serde_json::to_string(&brand.colors).unwrap_or_default(),
+        brand.display_font,
+        brand.body_font,
+        brief,
+    );
+    let size = image_size_for_format(format);
+    let client = reqwest::Client::new();
+    let response = if attachments
+        .iter()
+        .any(|file| file.mime_type.starts_with("image/"))
+    {
+        let mut form = reqwest::multipart::Form::new()
+            .text("model", provider.model.clone())
+            .text("prompt", prompt)
+            .text("size", size.to_owned())
+            .text("quality", "high")
+            .text("output_format", "png");
+        for attachment in attachments
+            .iter()
+            .filter(|file| file.mime_type.starts_with("image/"))
+        {
+            let bytes = STANDARD
+                .decode(&attachment.data_base64)
+                .map_err(|_| "An image reference could not be decoded.".to_string())?;
+            let part = reqwest::multipart::Part::bytes(bytes)
+                .file_name(attachment.name.clone())
+                .mime_str(&attachment.mime_type)
+                .map_err(|error| error.to_string())?;
+            form = form.part("image[]", part);
+        }
+        client
+            .post(format!("{endpoint}/images/edits"))
+            .bearer_auth(key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+    } else {
+        client.post(format!("{endpoint}/images/generations")).bearer_auth(key).json(&json!({"model":provider.model,"prompt":prompt,"size":size,"quality":"high","output_format":"png","n":1})).send().await.map_err(|error| error.to_string())?
+    };
+    if !response.status().is_success() {
+        return Err(response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Image provider request failed".into()));
+    }
+    let body: Value = response.json().await.map_err(|error| error.to_string())?;
+    let image = body
+        .pointer("/data/0/b64_json")
+        .and_then(Value::as_str)
+        .ok_or("The image provider returned no PNG data.")?;
+    Ok((
+        "Image generation".into(),
+        VisualSpec {
+            headline: brief.chars().take(80).collect(),
+            image_data: format!("data:image/png;base64,{image}"),
+            kicker: String::new(),
+            subline: String::new(),
+            details: Vec::new(),
+            cta: String::new(),
+            footer: brand.name.clone(),
+            composition: "image".into(),
+            reference_note: "Generated with the configured image model.".into(),
+            scheme: "light".into(),
+            alignment: "left".into(),
+            title_size: 72,
+            shape: String::new(),
+        },
+    ))
+}
+
+fn image_size_for_format(format: &str) -> &'static str {
+    match format {
+        "story" => "1024x1536",
+        "landscape" => "1536x1024",
+        _ => "1024x1536",
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -320,6 +425,7 @@ fn parse_spec(raw: &str) -> Result<(String, VisualSpec), String> {
         label,
         VisualSpec {
             headline,
+            image_data: String::new(),
             kicker: candidate
                 .get("kicker")
                 .and_then(Value::as_str)
