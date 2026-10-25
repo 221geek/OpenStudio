@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OpenStudio",
+  "version": "0.1.0",
+  "identifier": "com.openstudio.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "OpenStudio", "width": 1280, "height": 820, "minWidth": 980, "minHeight": 680, "resizable": true }],
+    "security": { "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https: http:;" }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "copyright": "Copyright 2026 OpenStudio contributors",
+    "category": "GraphicsAndDesign",
+    "shortDescription": "Local-first AI visual studio",
+    "longDescription": "Create on-brand visual assets locally with your own AI provider.",
+    "icon": ["icons/icon.svg"]
+  }
+}
